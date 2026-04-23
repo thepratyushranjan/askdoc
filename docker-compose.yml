@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  api:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: backend
+    ports:
+      - "8069:8000"
+    env_file:
+      - .env
+    environment:
+      # Override the POSTGRES_SERVER to connect to the host's port where the pgvector DB is running
+      - POSTGRES_SERVER=host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    volumes:
+      # Mount the local directory to the container for hot-reloading in dev
+      - .:/app
+    command: ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
