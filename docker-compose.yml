@@ -1,6 +1,23 @@
 version: '3.8'
 
 services:
+  db:
+    image: pgvector/pgvector:pg17
+    container_name: pgdb
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-pgdb}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-pgdb}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   api:
     build: 
       context: .
@@ -11,12 +28,15 @@ services:
     env_file:
       - .env
     environment:
-      # Override the POSTGRES_SERVER to connect to the host's port where the pgvector DB is running
-      - POSTGRES_SERVER=host.docker.internal
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - POSTGRES_SERVER=db
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
     volumes:
       # Mount the local directory to the container for hot-reloading in dev
       - .:/app
     command: ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+volumes:
+  pgdata:

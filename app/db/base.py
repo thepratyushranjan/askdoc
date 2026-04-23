@@ -9,5 +9,4 @@ class Base(AsyncAttrs, DeclarativeBase):
     pass
 
 # Import all models here so Alembic can discover them
-# Example:
-# from app.models.item import Item
+from app.models.models import Document, DocumentChunk, Conversation, Message

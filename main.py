@@ -3,24 +3,37 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 import time
 from sqlalchemy import text
+from alembic.config import Config
+from alembic import command
+import os
 from app.db.session import engine
 from app.core.config import settings
 
+def run_migrations():
+    print("Running database migrations...")
+    alembic_cfg = Config("alembic.ini")
+    command.upgrade(alembic_cfg, "head")
+    print("Database migrations applied successfully.")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # --- STARTUP LOGIC HERE ---
     print(f"Starting up {settings.PROJECT_NAME}...")
-    
-    # Initialize database connections and ensure vector extension exists
     try:
         async with engine.begin() as conn:
             await conn.execute(text("SELECT 1"))
             print("Database connection successful.")
             print("Ensuring pgvector extension exists...")
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        
+        # Run Alembic migrations synchronously
+        # We use asyncio.to_thread because Alembic operations are mostly blocking I/O
+        import asyncio
+        await asyncio.to_thread(run_migrations)
+
     except Exception as e:
-        print(f"Failed to connect to the database or create pgvector extension: {e}")
-        # Depending on your deployment, you might want to raise the exception here to prevent the app from starting without a DB
+        print(f"CRITICAL: Failed to connect to the database or run migrations: {e}")
+        # Raise the exception to prevent the application from starting
+        raise
     
     yield  # Application runs while yielded
     
@@ -48,6 +61,6 @@ async def add_process_time_header(request: Request, call_next):
     response.headers["X-Process-Time"] = str(process_time)
     return response
 
-@app.get("/")
-async def root():
-    return {"message": "Hello from askdoc!"}
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
