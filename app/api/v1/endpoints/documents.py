@@ -14,7 +14,6 @@ router = APIRouter()
 
 @router.post("/upload", response_model=DocumentResponse)
 async def upload_document(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db)
 ):
@@ -45,8 +44,8 @@ async def upload_document(
     await db.commit()
     await db.refresh(db_document)
 
-    # 6. Trigger background processing task
-    background_tasks.add_task(process_document_task, db_document.id)
+    # 6. Trigger background processing task via Celery
+    process_document_task.delay(str(db_document.id))
 
     return db_document
 

@@ -10,9 +10,17 @@ import docx
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from sentence_transformers import SentenceTransformer
 from sqlalchemy import select
+from celery import Celery
 from app.models.models import Document, DocumentChunk, DocumentStatus
 from app.core.config import settings
 from app.db.session import AsyncSessionLocal
+
+# Initialize Celery
+celery_app = Celery(
+    "tasks",
+    broker=os.getenv("REDIS_URL", "redis://redis:6379/0"),
+    backend=os.getenv("REDIS_URL", "redis://redis:6379/0")
+)
 
 # We load the embedding model globally so it's only loaded once in memory
 model = SentenceTransformer(settings.EMBEDDING_MODEL_NAME)
@@ -78,7 +86,20 @@ def generate_embeddings_and_store_faiss_sync(chunks: List[str], doc_id: UUID, st
     with open(metadata_path, "wb") as f:
         pickle.dump(metadata, f)
 
-async def process_document_task(doc_id: UUID):
+@celery_app.task(name="process_document")
+def process_document_task(doc_id_str: str):
+    doc_id = UUID(doc_id_str)
+    
+    # Run the async logic in a synchronous wrapper for Celery
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+    return loop.run_until_complete(_process_document_async(doc_id))
+
+async def _process_document_async(doc_id: UUID):
     async with AsyncSessionLocal() as db:
         try:
             # 1. Fetch document and mark as processing

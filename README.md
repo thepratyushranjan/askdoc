@@ -5,7 +5,8 @@ Askdoc is a high-performance, asynchronous Retrieval-Augmented Generation (RAG) 
 ## 🌟 Features
 
 - **Multi-format Support:** Seamlessly process PDF and DOCX files.
-- **Asynchronous Processing:** Background document ingestion using `asyncio.to_thread` to keep the API responsive.
+- **Distributed Task Queue:** Background document ingestion using **Celery and Redis** to ensure the API stays responsive even under high load.
+- **Real-time Monitoring:** Integrated **Flower** dashboard to monitor background task status, execution times, and worker health.
 - **Semantic Search:** Utilizes `SentenceTransformers` (`all-MiniLM-L6-v2`) and `FAISS` for lightning-fast, accurate context retrieval.
 - **Intelligent Conversations:** 
     - **Question Condensation:** Rewrites follow-up questions into standalone queries for better retrieval.
@@ -16,16 +17,18 @@ Askdoc is a high-performance, asynchronous Retrieval-Augmented Generation (RAG) 
 
 ## 🏗️ Architecture
 
-The system is built with a modular architecture:
+The system is built with a modular, distributed architecture:
 
 - **Backend:** FastAPI (Python 3.13+)
 - **Frontend:** React (TypeScript) with Vite
+- **Task Queue:** Celery with Redis (Broker)
+- **Monitoring:** Flower (at `http://localhost:5555`)
 - **Database:** PostgreSQL (Metadata, Conversations, Messages)
 - **Vector Store:** FAISS (Local CPU-based)
 - **Embeddings:** Sentence Transformers (`all-MiniLM-L6-v2`)
-- **LLM:** Google Gemini 2.0 Flash (via OpenAI compatible SDK)
+- **LLM:** Google Gemini 2.5 Flash
 
-For a detailed breakdown, see [architecture.md](./architecture.md).
+For a detailed breakdown and system design diagrams, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ---
 
@@ -42,21 +45,22 @@ cp .env.example .env
 ```
 Key variables:
 - `GEMINI_API_KEY`: Your Google AI API key.
-- `POSTGRES_*`: Database configuration (defaults provided for Docker).
+- `POSTGRES_*`: Database configuration.
 
 ### 3. Run with Docker
-Start the entire stack (API, Frontend, Database) using Docker Compose:
+Start the entire stack (API, Workers, Redis, DB) using Docker Compose:
 ```bash
 docker compose up -d --build
 ```
-The application will be available at `http://localhost:8069`.
+- **API/Frontend:** `http://localhost:8069`
+- **Flower (Monitoring):** `http://localhost:5555`
 
 ---
 
 ## 🧪 Testing the API via cURL
 
 ### Step 1: Upload a Document
-Uploads a document and starts the background vectorization process.
+Uploads a document and starts the distributed vectorization process.
 
 ```bash
 curl -X POST "http://localhost:8069/api/v1/documents/upload" \
@@ -77,7 +81,7 @@ curl -X POST "http://localhost:8069/api/v1/documents/upload" \
 ```
 
 ### Step 2: Check Processing Status
-Before asking questions, ensure the document status is `completed`.
+Monitor the status via API or visit the Flower dashboard at `http://localhost:5555`.
 
 ```bash
 curl -X GET "http://localhost:8069/api/v1/documents/20ace2fe-6356-48bc-a9f8-19fce392c42e" \
@@ -115,6 +119,10 @@ curl -X GET "http://localhost:8069/api/v1/chat/conversations/<CONVERSATION-ID>" 
 ---
 
 ## 🔒 Security & Reliability
+- **Distributed Processing:** Tasks are offloaded to workers, protecting the API from heavy CPU load.
 - **UUIDs:** All public-facing identifiers use UUIDs to prevent enumeration.
-- **Error Handling:** Robust background task error catching with status updates in the DB.
+- **Error Handling:** Robust worker-level error catching with status updates in the DB.
 - **Graceful Failures:** Friendly error messages for LLM timeouts or unsupported file formats.
+
+---
+Developed with ♥ by **Pratyush** • © 2026

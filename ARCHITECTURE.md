@@ -1,34 +1,45 @@
 # Askdoc System Architecture & Design
 
-This document describes the technical architecture and data flows of the Askdoc Retrieval-Augmented Generation (RAG) system.
+This document describes the technical architecture and data flows of the Askdoc Retrieval-Augmented Generation (RAG) system. The system is designed for high concurrency, utilizing a distributed task queue for heavy AI processing.
 
 ## 🧱 Component Architecture
 
-The system is composed of decoupled services, allowing the UI to remain responsive while heavy AI tasks process asynchronously in the background.
+The system is composed of decoupled services, allowing the UI and API to remain lightning-fast and responsive while heavy AI tasks (text extraction, chunking, and embedding) are processed asynchronously by background workers.
 
 ```mermaid
 graph TD
     Client[React Frontend] <-->|REST API| API[FastAPI Backend]
     
+    subgraph Infrastructure
+        API -->|Enqueue Task| Broker[(Redis)]
+        Broker -->|Consume Task| Worker[Celery Worker]
+        Flower[Celery Flower] -->|Monitor| Broker
+    end
+    
     subgraph Data Layer
-        API <-->|SQLAlchemy/asyncpg| PG[(PostgreSQL)]
+        API <-->|asyncpg| PG[(PostgreSQL)]
+        Worker <-->|asyncpg| PG
         API <-->|faiss-cpu| FAISS[(FAISS Vector Store)]
+        Worker -->|Update| FAISS
         API -->|Local I/O| Disk[Local File System]
+        Worker -->|Read| Disk
     end
     
     subgraph AI Pipeline
-        API -->|SentenceTransformers| EMB[all-MiniLM-L6-v2]
+        Worker -->|SentenceTransformers| EMB[all-MiniLM-L6-v2]
         EMB --> FAISS
-        API <-->|OpenAI SDK| LLM[Google Gemini 2.0 Flash]
+        API <-->|OpenAI SDK| LLM[Google Gemini 2.5 Flash]
     end
     
     classDef frontend fill:#61dafb,stroke:#333,stroke-width:2px,color:#000;
     classDef backend fill:#059669,stroke:#333,stroke-width:2px,color:#fff;
+    classDef infra fill:#ef4444,stroke:#333,stroke-width:2px,color:#fff;
     classDef db fill:#3b82f6,stroke:#333,stroke-width:2px,color:#fff;
     classDef ai fill:#f59e0b,stroke:#333,stroke-width:2px,color:#000;
     
     class Client frontend;
     class API backend;
+    class Broker,Worker,Flower infra;
     class PG,FAISS,Disk db;
     class EMB,LLM ai;
 ```
@@ -36,56 +47,61 @@ graph TD
 ### 1. Frontend (React + TypeScript)
 - **Framework:** Vite-powered React application.
 - **State Management:** React Hooks (useState, useEffect, useCallback) for local and session state.
-- **Communication:** `fetch` based API client for interacting with the FastAPI backend.
-- **Key Features:** Real-time document status polling, markdown rendering for chat, and session persistence via `localStorage`.
+- **Communication:** `fetch` based API client.
+- **Key Features:** Real-time document status polling, markdown rendering, and session persistence via `localStorage`.
 
 ### 2. Backend (FastAPI)
 - **API Framework:** FastAPI for high-performance asynchronous request handling.
-- **Task Management:** Utilizes FastAPI's `BackgroundTasks` for offloading CPU-intensive document processing.
 - **ORM:** SQLAlchemy with `asyncpg` for asynchronous database operations.
 - **Migration:** Alembic for database schema versioning.
 
-### 3. Data Storage
+### 3. Distributed Task Queue (Celery + Redis)
+- **Broker (Redis):** Acts as the message broker, securely holding tasks dispatched by FastAPI until a worker is ready.
+- **Worker (Celery):** Runs in a separate isolated container. It consumes tasks from Redis and executes CPU-bound operations without blocking the API event loop.
+- **Monitor (Flower):** Provides a web-based dashboard for real-time monitoring of Celery clusters, tracking task success rates, execution times, and worker health.
+
+### 4. Data Storage
 - **Relational DB (PostgreSQL):** Stores document metadata, chunk text, conversation threads, and message history (strict chronological ordering).
 - **Vector Store (FAISS):** Stores high-dimensional vector embeddings of document chunks for efficient similarity search.
-- **File System:** Local storage for uploaded PDF and DOCX files.
 
-### 4. AI & ML Pipeline
-- **Embedding Model:** `SentenceTransformers/all-MiniLM-L6-v2` - chosen for its balance between performance and low resource consumption on CPUs.
-- **LLM:** `Google Gemini 2.0 Flash` - used for natural language understanding, question condensation, and final response generation.
+### 5. AI & ML Pipeline
+- **Embedding Model:** `SentenceTransformers/all-MiniLM-L6-v2` - Baked directly into the Docker image for instant startup.
+- **LLM:** `Google Gemini 2.5 Flash` - Used for natural language understanding, question condensation, and final response generation.
 - **Text Splitter:** `RecursiveCharacterTextSplitter` from LangChain, configured with 1000-character chunks and 100-character overlap.
 
 ---
 
 ## 🔄 System Workflows
 
-### 1. Document Ingestion Flow
+### 1. Document Ingestion Flow (Distributed)
 
-When a user uploads a document, the API immediately returns a response while vectorization happens in a background thread to keep the server non-blocking.
+When a user uploads a document, the API immediately returns a response while vectorization happens in an isolated Celery worker container.
 
 ```mermaid
 sequenceDiagram
     participant U as User/Frontend
     participant A as FastAPI Server
     participant DB as PostgreSQL
-    participant T as Background Task
+    participant R as Redis Broker
+    participant W as Celery Worker
     participant V as FAISS Index
 
     U->>A: POST /documents/upload (PDF/DOCX)
     A->>DB: Save Document Status (PENDING)
-    A->>T: Dispatch process_document_task
+    A->>R: Dispatch process_document_task
     A-->>U: Return 200 OK (Document ID)
     
     %% Background processing
-    activate T
-    T->>DB: Update Status (PROCESSING)
-    T->>T: Extract Text (PyPDF/python-docx)
-    T->>T: Chunk Text (RecursiveCharacterTextSplitter)
-    T->>DB: Save Text Chunks
-    T->>T: Generate Embeddings (SentenceTransformers)
-    T->>V: Store Embeddings
-    T->>DB: Update Status (COMPLETED)
-    deactivate T
+    R->>W: Consume Task
+    activate W
+    W->>DB: Update Status (PROCESSING)
+    W->>W: Extract Text (PyPDF/python-docx)
+    W->>W: Chunk Text (RecursiveCharacterTextSplitter)
+    W->>DB: Save Text Chunks
+    W->>W: Generate Embeddings (SentenceTransformers)
+    W->>V: Store Embeddings
+    W->>DB: Update Status (COMPLETED)
+    deactivate W
     
     U->>A: GET /documents/{id} (Polling)
     A->>DB: Fetch Status
@@ -94,14 +110,12 @@ sequenceDiagram
 
 ### 2. Q&A / Retrieval Flow
 
-The chat flow implements an advanced RAG pattern that involves query condensation and parallel execution for optimal speed.
-
 ```mermaid
 sequenceDiagram
     participant U as Frontend
     participant A as FastAPI Server
     participant DB as PostgreSQL
-    participant LLM as Gemini 2.0 Flash
+    participant LLM as Gemini 2.5 Flash
     participant V as FAISS Index
 
     U->>A: POST /chat/conversations/{id}/ask (Message)
@@ -130,9 +144,9 @@ sequenceDiagram
     end
 ```
 
-## 🗄️ Database Schema (ERD)
+---
 
-The relational data is stored in PostgreSQL. Below is the Entity-Relationship Diagram representing the core data models.
+## 🗄️ Database Schema (ERD)
 
 ```mermaid
 erDiagram
@@ -171,30 +185,8 @@ erDiagram
     }
 ```
 
-## 📁 Project Structure
-
-```text
-Askdoc/
-├── app/                      # FastAPI Backend Application
-│   ├── api/v1/endpoints/     # REST API route handlers (chat, documents)
-│   ├── core/                 # App configuration and environment variables
-│   ├── db/                   # Database session and base models
-│   ├── models/               # SQLAlchemy ORM models
-│   ├── schemas/              # Pydantic validation schemas
-│   └── services/             # Core business logic (RAG, FAISS, LLM integration)
-├── frontend/                 # React + Vite Frontend Application
-│   ├── public/               # Static assets
-│   └── src/                  # React components, hooks, and API client
-├── media/                    # Local storage for uploaded PDF/DOCX files
-├── migrations/               # Alembic database migration scripts
-├── vector_store/             # FAISS local index and metadata files
-├── docker-compose.yml        # Multi-container orchestration
-├── Dockerfile                # Backend container definition
-└── main.py                   # FastAPI application entry point
-```
-
 ## 🛠️ Technology Stack Decisions
 
+- **Why Celery & Redis?** Offloading ML tasks (chunking and embeddings) ensures the API remains completely non-blocking. If 100 users upload PDFs simultaneously, the API stays responsive while Redis queues the jobs for the Celery workers to handle systematically. This is the gold standard for production-grade asynchronous processing.
 - **Why FAISS over pgvector?** While the project includes `pgvector` dependencies, the current implementation uses FAISS to ensure maximum performance for local similarity searches and to adhere to a CPU-optimized local vector store pattern.
-- **Why BackgroundTasks?** Using FastAPI's native background tasks allows the system to remain responsive without the overhead of a full Celery/Redis setup for simpler deployments.
-- **Why Gemini 2.0 Flash?** It provides exceptional speed and accuracy for RAG tasks, especially for the "condensation" and "follow-up" steps where low latency is critical to the user experience.
+- **Why Gemini 2.5 Flash?** It provides exceptional speed and accuracy for RAG tasks, especially for the "condensation" and "follow-up" steps where low latency is critical to the user experience.

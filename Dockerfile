@@ -37,6 +37,9 @@ COPY pyproject.toml uv.lock ./
 # Install dependencies using uv sync
 RUN uv sync --frozen --no-dev
 
+# Pre-download the SentenceTransformer model to speed up container startup
+RUN uv run python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+
 # Copy the rest of the application code
 COPY . .
 
