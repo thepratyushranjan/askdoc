@@ -12,3 +12,4 @@ __pycache__
 *.log
 ARCHITECTURE.md
 FRONTEND_WORKFLOW.md
+.claude/
