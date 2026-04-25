@@ -31,3 +31,4 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     answer: str
+    follow_ups: List[str] = []

@@ -14,6 +14,7 @@ const SUGGESTIONS = [
   'What are the key dates or numbers mentioned?',
   'List the main arguments or findings',
   'Explain the most important section in plain language',
+  'Are there any risks, caveats, or open questions?',
 ];
 
 export function ChatView({ messages, isResponding, onSuggestion, filename }: ChatViewProps) {
@@ -23,10 +24,18 @@ export function ChatView({ messages, isResponding, onSuggestion, filename }: Cha
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages, isResponding]);
 
-  const showSuggestions =
+  const showStarterSuggestions =
     !isResponding &&
     messages.length <= 1 &&
     messages.every((m) => m.role === 'assistant');
+
+  let lastAssistantId: string | undefined;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'assistant' && !messages[i].pending) {
+      lastAssistantId = messages[i].id;
+      break;
+    }
+  }
 
   return (
     <div className="chat-stage">
@@ -43,10 +52,15 @@ export function ChatView({ messages, isResponding, onSuggestion, filename }: Cha
         )}
 
         {messages.map((m) => (
-          <MessageItem key={m.id} message={m} />
+          <MessageItem
+            key={m.id}
+            message={m}
+            onFollowUp={isResponding ? undefined : onSuggestion}
+            isLastAssistant={m.id === lastAssistantId}
+          />
         ))}
 
-        {showSuggestions && (
+        {showStarterSuggestions && (
           <div className="suggestions" aria-label="Suggested prompts">
             {SUGGESTIONS.map((s) => (
               <button

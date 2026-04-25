@@ -1,5 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import time
 from sqlalchemy import text
@@ -64,6 +66,23 @@ async def add_process_time_header(request: Request, call_next):
     process_time = time.time() - start_time
     response.headers["X-Process-Time"] = str(process_time)
     return response
+
+# Serve static files for the React frontend
+frontend_dist = os.path.join(os.path.dirname(__file__), "frontend", "dist")
+
+if os.path.exists(frontend_dist):
+    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
+    
+    @app.get("/{catchall:path}")
+    async def serve_frontend(catchall: str):
+        # Prevent API routes from falling into the frontend catchall
+        if catchall.startswith("api/"):
+            return FileResponse(os.path.join(frontend_dist, "index.html"), status_code=404)
+            
+        file_path = os.path.join(frontend_dist, catchall)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+        return FileResponse(os.path.join(frontend_dist, "index.html"))
 
 if __name__ == "__main__":
     import uvicorn

@@ -63,3 +63,4 @@ async def get_document_status(
         raise HTTPException(status_code=404, detail="Document not found")
         
     return document
+

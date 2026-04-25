@@ -23,6 +23,7 @@ export interface ConversationResponse {
 
 export interface AskResponse {
   answer: string;
+  follow_ups: string[];
 }
 
 const BASE = '/api/v1';

@@ -58,5 +58,5 @@ async def ask_question(
     request: ChatRequest,
     db: AsyncSession = Depends(get_db)
 ):
-    answer = await process_chat_message(db, conversation_id, request.message)
-    return ChatResponse(answer=answer)
+    answer, follow_ups = await process_chat_message(db, conversation_id, request.message)
+    return ChatResponse(answer=answer, follow_ups=follow_ups)

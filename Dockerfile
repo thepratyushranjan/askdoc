@@ -1,4 +1,21 @@
-# Use the official Python 3.13 slim image
+# Stage 1: Build the React frontend
+FROM node:20-alpine AS frontend-builder
+
+WORKDIR /app/frontend
+
+# Copy frontend package files
+COPY frontend/package*.json ./
+
+# Install frontend dependencies
+RUN npm ci
+
+# Copy the rest of the frontend source
+COPY frontend/ ./
+
+# Build the React application
+RUN npm run build
+
+# Stage 2: Build the FastAPI backend
 FROM python:3.13-slim
 
 # Install system dependencies
@@ -18,11 +35,13 @@ ENV UV_HTTP_TIMEOUT=300
 COPY pyproject.toml uv.lock ./
 
 # Install dependencies using uv sync
-ENV UV_HTTP_TIMEOUT=300
 RUN uv sync --frozen --no-dev
 
 # Copy the rest of the application code
 COPY . .
+
+# Copy the built frontend from Stage 1 into the location expected by FastAPI
+COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 
 # Expose the port the app runs on
 EXPOSE 8000

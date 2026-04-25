@@ -287,7 +287,12 @@ export default function App() {
         setMessages((m) =>
           m.map((msg) =>
             msg.id === pendingId
-              ? { ...msg, content: res.answer, pending: false }
+              ? {
+                  ...msg,
+                  content: res.answer,
+                  pending: false,
+                  followUps: Array.isArray(res.follow_ups) ? res.follow_ups : [],
+                }
               : msg
           )
         );

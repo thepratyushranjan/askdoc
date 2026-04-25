@@ -8,13 +8,16 @@ export interface UiMessage {
   content: string;
   pending?: boolean;
   error?: boolean;
+  followUps?: string[];
 }
 
 interface MessageItemProps {
   message: UiMessage;
+  onFollowUp?: (text: string) => void;
+  isLastAssistant?: boolean;
 }
 
-export function MessageItem({ message }: MessageItemProps) {
+export function MessageItem({ message, onFollowUp, isLastAssistant }: MessageItemProps) {
   const [copied, setCopied] = useState(false);
   const isUser = message.role === 'user';
 
@@ -63,6 +66,28 @@ export function MessageItem({ message }: MessageItemProps) {
           </button>
         </div>
       )}
+      {!message.pending &&
+        !message.error &&
+        isLastAssistant &&
+        onFollowUp &&
+        message.followUps &&
+        message.followUps.length > 0 && (
+          <div className="msg-followups" aria-label="Suggested follow-up questions">
+            <div className="msg-followups-label">Suggested follow-ups</div>
+            <div className="msg-followups-list">
+              {message.followUps.map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  className="suggestion-chip"
+                  onClick={() => onFollowUp(q)}
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
     </div>
   );
 }
