@@ -87,7 +87,7 @@ export function Composer({
         </div>
       </form>
       <div className="composer-foot">
-        Askdoc may be inaccurate. Verify important details against the source.
+        Developed with &hearts; by <strong>Pratyush</strong> &bull; &copy; 2026
       </div>
     </div>
   );
