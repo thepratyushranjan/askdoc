@@ -36,6 +36,8 @@ services:
     volumes:
       # Mount the local directory to the container for hot-reloading in dev
       - .:/app
+      # Prevent the local .venv from overriding the container's .venv
+      - /app/.venv
     command: ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 
 volumes:

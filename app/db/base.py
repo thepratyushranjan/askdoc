@@ -8,5 +8,3 @@ class Base(AsyncAttrs, DeclarativeBase):
     """
     pass
 
-# Import all models here so Alembic can discover them
-from app.models.models import Document, DocumentChunk, Conversation, Message

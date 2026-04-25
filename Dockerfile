@@ -11,10 +11,14 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 # Set the working directory
 WORKDIR /app
 
+# Increase uv network timeout for large packages
+ENV UV_HTTP_TIMEOUT=300
+
 # Copy dependency files
 COPY pyproject.toml uv.lock ./
 
 # Install dependencies using uv sync
+ENV UV_HTTP_TIMEOUT=300
 RUN uv sync --frozen --no-dev
 
 # Copy the rest of the application code

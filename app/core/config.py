@@ -20,6 +20,15 @@ class Settings(BaseSettings):
         # We are using asyncpg for async sqlalchemy
         return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
 
+    # App Settings
+    MEDIA_DIR: str = "media"
+    VECTOR_STORE_DIR: str = "vector_store"
+    EMBEDDING_MODEL_NAME: str = "all-MiniLM-L6-v2"
+    
+    # Gemini (via OpenAI)
+    GEMINI_API_KEY: Optional[str] = None
+    GEMINI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
+
     # .env file configuration for pydantic-settings
     model_config = SettingsConfigDict(
         env_file=".env",

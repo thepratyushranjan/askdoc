@@ -8,6 +8,7 @@ from alembic import command
 import os
 from app.db.session import engine
 from app.core.config import settings
+from app.api.v1.api import api_router
 
 def run_migrations():
     print("Running database migrations...")
@@ -43,6 +44,9 @@ async def lifespan(app: FastAPI):
     print("Database connections closed.")
 
 app = FastAPI(title="Askdoc API", lifespan=lifespan)
+
+# Include API router
+app.include_router(api_router, prefix="/api/v1")
 
 # Setup Middleware
 app.add_middleware(
