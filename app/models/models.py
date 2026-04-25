@@ -51,7 +51,11 @@ class Conversation(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     document: Mapped["Document"] = relationship(back_populates="conversations")
-    messages: Mapped[List["Message"]] = relationship(back_populates="conversation", cascade="all, delete-orphan")
+    messages: Mapped[List["Message"]] = relationship(
+        back_populates="conversation", 
+        cascade="all, delete-orphan",
+        order_by="Message.created_at"
+    )
 
 class Message(Base):
     __tablename__ = "messages"
