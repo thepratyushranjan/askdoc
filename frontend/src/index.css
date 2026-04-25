@@ -1,0 +1,17 @@
+/* Global reset only — design tokens and component styles live in App.css */
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+#root {
+  min-height: 100%;
+  width: 100%;
+}
