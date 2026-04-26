@@ -48,7 +48,9 @@ def search_faiss_sync(query: str, document_id: UUID, top_k: int = 5) -> List[str
         metadata = pickle.load(f)
 
     query_embedding = model.encode([query])
-    distances, indices = index.search(query_embedding.astype("float32"), top_k * 3)
+    # Search a wider range of candidates to account for other documents in the index
+    search_k = min(len(metadata), top_k * 20) if metadata else top_k * 3
+    distances, indices = index.search(query_embedding.astype("float32"), search_k)
 
     relevant_chunks = []
     for idx in indices[0]:
@@ -163,6 +165,21 @@ async def process_chat_message(
     context_chunks = await asyncio.to_thread(
         search_faiss_sync, search_query, conversation.document_id
     )
+    
+    if not context_chunks:
+        # Fallback: Fetch first 5 chunks if no semantic matches found (helpful for general questions)
+        from app.models.models import DocumentChunk
+        stmt_fallback = (
+            select(DocumentChunk)
+            .where(DocumentChunk.document_id == conversation.document_id)
+            .order_by(DocumentChunk.chunk_index.asc())
+            .limit(5)
+        )
+        fallback_res = await db.execute(stmt_fallback)
+        context_chunks = [c.content for c in fallback_res.scalars().all()]
+        if context_chunks:
+            print(f"No semantic matches for '{search_query}'. Using first {len(context_chunks)} chunks as fallback.")
+
     context_text = "\n\n---\n\n".join(context_chunks)
 
     # 5. Build the LLM message array with a sliding window of recent history.
@@ -192,7 +209,7 @@ async def process_chat_message(
         response = await client.chat.completions.create(
             model=LLM_MODEL,
             messages=messages,
-            temperature=0.0,
+            temperature=0.7,
         )
         ai_response = response.choices[0].message.content or ""
     except Exception as e:
