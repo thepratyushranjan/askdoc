@@ -17,17 +17,17 @@ graph TD
     end
     
     subgraph Data Layer
-        API <-->|asyncpg| PG[(PostgreSQL)]
+        API <-->|asyncpg| PG[(PostgreSQL + pgvector)]
         Worker <-->|asyncpg| PG
-        API <-->|faiss-cpu| FAISS[(FAISS Vector Store)]
-        Worker -->|Update| FAISS
+        API <-->|pgvector| PG
+        Worker -->|Update pgvector| PG
         API -->|Local I/O| Disk[Local File System]
         Worker -->|Read| Disk
     end
     
     subgraph AI Pipeline
-        Worker -->|SentenceTransformers| EMB[all-MiniLM-L6-v2]
-        EMB --> FAISS
+        Worker -->|Gemini Embeddings| EMB[gemini-embedding-2]
+        EMB --> PG
         API <-->|OpenAI SDK| LLM[Google Gemini 2.5 Flash]
     end
     
@@ -40,7 +40,7 @@ graph TD
     class Client frontend;
     class API backend;
     class Broker,Worker,Flower infra;
-    class PG,FAISS,Disk db;
+    class PG,Disk db;
     class EMB,LLM ai;
 ```
 
@@ -62,12 +62,12 @@ graph TD
 
 ### 4. Data Storage
 - **Relational DB (PostgreSQL):** Stores document metadata, chunk text, conversation threads, and message history (strict chronological ordering).
-- **Vector Store (FAISS):** Stores high-dimensional vector embeddings of document chunks for efficient similarity search.
+- **Vector Store (pgvector):** Stores high-dimensional vector embeddings of document chunks for efficient similarity search directly alongside the relational data.
 
 ### 5. AI & ML Pipeline
-- **Embedding Model:** `SentenceTransformers/all-MiniLM-L6-v2` - Baked directly into the Docker image for instant startup.
+- **Embedding Model:** `gemini-embedding-2` - Used via Google GenAI for high quality semantic representations. Dimensionality constrained to 768 to match the database configuration.
 - **LLM:** `Google Gemini 2.5 Flash` - Used for natural language understanding, question condensation, and final response generation.
-- **Text Splitter:** `RecursiveCharacterTextSplitter` from LangChain, configured with 1000-character chunks and 100-character overlap.
+- **Text Splitter:** `RecursiveCharacterTextSplitter` from LangChain, configured with 1000-character chunks and 100-character overlap. This prevents semantic breakage mid-sentence.
 
 ---
 
@@ -84,7 +84,7 @@ sequenceDiagram
     participant DB as PostgreSQL
     participant R as Redis Broker
     participant W as Celery Worker
-    participant V as FAISS Index
+    participant V as pgvector Index
 
     U->>A: POST /documents/upload (PDF/DOCX)
     A->>DB: Save Document Status (PENDING)
@@ -98,7 +98,7 @@ sequenceDiagram
     W->>W: Extract Text (PyPDF/python-docx)
     W->>W: Chunk Text (RecursiveCharacterTextSplitter)
     W->>DB: Save Text Chunks
-    W->>W: Generate Embeddings (SentenceTransformers)
+    W->>W: Generate Embeddings (gemini-embedding-2)
     W->>V: Store Embeddings
     W->>DB: Update Status (COMPLETED)
     deactivate W
@@ -116,7 +116,7 @@ sequenceDiagram
     participant A as FastAPI Server
     participant DB as PostgreSQL
     participant LLM as Gemini 2.5 Flash
-    participant V as FAISS Index
+    participant V as pgvector Index
 
     U->>A: POST /chat/conversations/{id}/ask (Message)
     A->>DB: Fetch Conversation History
@@ -188,5 +188,10 @@ erDiagram
 ## 🛠️ Technology Stack Decisions
 
 - **Why Celery & Redis?** Offloading ML tasks (chunking and embeddings) ensures the API remains completely non-blocking. If 100 users upload PDFs simultaneously, the API stays responsive while Redis queues the jobs for the Celery workers to handle systematically. This is the gold standard for production-grade asynchronous processing.
-- **Why FAISS over pgvector?** While the project includes `pgvector` dependencies, the current implementation uses FAISS to ensure maximum performance for local similarity searches and to adhere to a CPU-optimized local vector store pattern.
+- **Why pgvector?** Storing embeddings alongside relational metadata in PostgreSQL simplifies the infrastructure and enables unified backups and transactions, removing the need for a separate FAISS cluster in a production environment.
 - **Why Gemini 2.5 Flash?** It provides exceptional speed and accuracy for RAG tasks, especially for the "condensation" and "follow-up" steps where low latency is critical to the user experience.
+
+## 🛡️ Security & Fallback Behavior
+
+- **Fallback Behavior:** If the `pgvector` semantic search yields no relevant results for a highly specific keyword, the system falls back to fetching the first 5 chronological chunks to attempt providing a generalized answer, reducing null responses. If the DB connection entirely drops, the API handles the `OperationalError` gracefully and returns a `503 Service Unavailable` instead of a crash.
+- **Security Considerations:** All document accesses and chats are strictly partitioned by UUID. This prevents integer enumeration attacks (IDOR). `SecurityWarning` on root usage is mitigated by Docker container isolation, though production deployment should switch the UID. Rate limiting (HTTP 429) from external LLM APIs is handled via Tenacity exponential backoff retries.

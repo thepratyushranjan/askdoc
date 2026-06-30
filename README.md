@@ -1,19 +1,17 @@
-# Askdoc: Smart Document Q&A System
+# Askdoc: Contract Intelligence System
 
-Askdoc is a high-performance, asynchronous Retrieval-Augmented Generation (RAG) system that allows users to upload documents (PDF/DOCX) and engage in natural language conversations based on the content. It leverages state-of-the-art open-source embeddings and Google's Gemini models to provide accurate, context-aware answers.
+Askdoc is a production-grade Contract Intelligence Backend System. It enables asynchronous ingestion of PDF/DOCX contracts, structured metadata extraction, semantic RAG-based Q&A, and automated clause risk analysis. The system is designed for high concurrency with distributed background workers and comprehensive observability.
 
 ## 🌟 Features
 
-- **Multi-format Support:** Seamlessly process PDF and DOCX files.
-- **Distributed Task Queue:** Background document ingestion using **Celery and Redis** to ensure the API stays responsive even under high load.
+- **Production-Grade Architecture:** Clean modular backend (`api/`, `services/`, `models/`, `core/`), fully Dockerized with `docker-compose`.
+- **Async & Scalable Processing:** Background document ingestion using **Celery and Redis** to ensure the API stays responsive even under high load.
+- **Observability + Reliability Mindset:** Features `/healthz` and `/metrics` endpoints tracking LLM token usage, latencies, and failures. Graceful degradation on database failures.
+- **Structured Extraction:** Forces the LLM to output a strict, validated JSON schema containing contract metadata (parties, terms, liability caps).
+- **RAG-based Q&A:** Grounded semantic search via `pgvector` with strict anti-hallucination prompting and document chunk citations.
+- **Risk Audit Engine:** Automatically detects risky clauses (e.g., unlimited liability, broad indemnity).
+- **Streaming Support:** Supports streaming LLM responses (`/ask/stream`) for the Q&A interface.
 - **Real-time Monitoring:** Integrated **Flower** dashboard to monitor background task status, execution times, and worker health.
-- **Semantic Search:** Utilizes `SentenceTransformers` (`all-MiniLM-L6-v2`) and `FAISS` for lightning-fast, accurate context retrieval.
-- **Intelligent Conversations:** 
-    - **Question Condensation:** Rewrites follow-up questions into standalone queries for better retrieval.
-    - **Follow-up Suggestions:** Automatically generates relevant follow-up questions based on the context.
-    - **Anti-Hallucination:** Strict system prompting ensures answers are grounded only in the provided documents.
-- **Modern UI:** Responsive React-based frontend with real-time processing updates and a clean chat interface.
-- **Persistent Storage:** PostgreSQL for metadata and conversation history, with FAISS for efficient vector indexing.
 
 ## 🏗️ Architecture
 
@@ -23,12 +21,11 @@ The system is built with a modular, distributed architecture:
 - **Frontend:** React (TypeScript) with Vite
 - **Task Queue:** Celery with Redis (Broker)
 - **Monitoring:** Flower (at `http://localhost:5555`)
-- **Database:** PostgreSQL (Metadata, Conversations, Messages)
-- **Vector Store:** FAISS (Local CPU-based)
-- **Embeddings:** Sentence Transformers (`all-MiniLM-L6-v2`)
+- **Database & Vector Store:** PostgreSQL + `pgvector` (Metadata, Conversations, Embeddings)
+- **Embeddings:** `gemini-embedding-2` (768 dimensions)
 - **LLM:** Google Gemini 2.5 Flash
 
-For a detailed breakdown and system design diagrams, see [ARCHITECTURE.md](./ARCHITECTURE.md).
+For a detailed breakdown and system design diagrams, see [DESIGN.md](./DESIGN.md).
 
 ---
 
@@ -59,62 +56,84 @@ docker compose up -d --build
 
 ## 🧪 Testing the API via cURL
 
-### Step 1: Upload a Document
-Uploads a document and starts the distributed vectorization process.
+### 1. Ingestion (Async PDF/DOCX Processing)
+Uploads a document and returns the `document_ids`.
 
 ```bash
-curl -X POST "http://localhost:8069/api/v1/documents/upload" \
+curl -X POST "http://localhost:8069/api/v1/ingest" \
   -H "accept: application/json" \
   -H "Content-Type: multipart/form-data" \
-  -F "file=@sample1.pdf"
+  -F "files=@contract.docx"
 ```
 
-**Response:** Note the `id` (Document ID).
+**Response:** Note the `document_id`.
 
 ```json
 {
-  "id": "20ace2fe-6356-48bc-a9f8-19fce392c42e",
-  "filename": "sample1.pdf",
-  "status": "pending",
-  "created_at": "2026-04-25T12:00:00"
+  "message": "Files uploaded successfully and are being processed.",
+  "data": [
+    {
+      "document_id": "20ace2fe-6356-48bc-a9f8-19fce392c42e",
+      "filename": "contract.docx",
+      "status": "pending"
+    }
+  ]
 }
 ```
 
-### Step 2: Check Processing Status
-Monitor the status via API or visit the Flower dashboard at `http://localhost:5555`.
+### 2. Structured Extraction
+Extracts structured JSON fields from the document.
 
 ```bash
-curl -X GET "http://localhost:8069/api/v1/documents/20ace2fe-6356-48bc-a9f8-19fce392c42e" \
-  -H "accept: application/json"
-```
-
-### Step 3: Start a Conversation
-Create a chat thread linked to your processed document.
-
-```bash
-curl -X POST "http://localhost:8069/api/v1/chat/conversations/20ace2fe-6356-48bc-a9f8-19fce392c42e" \
-  -H "accept: application/json"
-```
-
-**Response:** Note the `id` (Conversation ID).
-
-### Step 4: Ask a Question
-Ask a question using the Conversation ID.
-
-```bash
-curl -X POST "http://localhost:8069/api/v1/chat/conversations/<CONVERSATION-ID>/ask" \
+curl -X POST "http://localhost:8069/api/v1/extract" \
   -H "accept: application/json" \
   -H "Content-Type: application/json" \
-  -d '{"message": "What is the summary of this document?"}'
+  -d '{"document_id": "<DOCUMENT-ID>"}'
 ```
 
-### Step 5: View Chat History
-Fetch the entire thread to see follow-up context.
+### 3. RAG-based Q&A
+Ask a grounded question and get citations.
 
 ```bash
-curl -X GET "http://localhost:8069/api/v1/chat/conversations/<CONVERSATION-ID>" \
-  -H "accept: application/json"
+curl -X POST "http://localhost:8069/api/v1/ask" \
+  -H "accept: application/json" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "query": "What is the liability cap?",
+        "document_ids": ["<DOCUMENT-ID>"]
+      }'
 ```
+
+### 4. Risk Audit Engine
+Detects risky clauses like unlimited liability or auto-renewal.
+
+```bash
+curl -X POST "http://localhost:8069/api/v1/audit" \
+  -H "accept: application/json" \
+  -H "Content-Type: application/json" \
+  -d '{"document_id": "<DOCUMENT-ID>"}'
+```
+
+### 5. Streaming Q&A
+Streams the answer back chunk by chunk.
+
+```bash
+curl -X GET "http://localhost:8069/api/v1/ask/stream?query=Who%20are%20the%20parties%3F&document_ids=<DOCUMENT-ID>" \
+  -H "accept: text/event-stream"
+```
+
+### 6. System Endpoints
+Observe the health and performance metrics of the backend.
+
+```bash
+# Check if Postgres, pgvector, and Redis are up
+curl -s http://localhost:8069/api/v1/healthz
+
+# View requests, latency, failures, and LLM token usage
+curl -s http://localhost:8069/api/v1/metrics
+```
+
+*(The OpenAPI documentation is automatically available at `http://localhost:8069/docs`)*
 
 ---
 
@@ -123,6 +142,14 @@ curl -X GET "http://localhost:8069/api/v1/chat/conversations/<CONVERSATION-ID>" 
 - **UUIDs:** All public-facing identifiers use UUIDs to prevent enumeration.
 - **Error Handling:** Robust worker-level error catching with status updates in the DB.
 - **Graceful Failures:** Friendly error messages for LLM timeouts or unsupported file formats.
+
+---
+
+## ⚖️ Trade-offs
+
+1. **pgvector vs Local Vector DBs (FAISS/Chroma):** We chose `pgvector` for simplicity of infrastructure and transactional consistency (metadata and embeddings live together), at the cost of slightly higher CPU usage on the database instance compared to a dedicated FAISS cluster.
+2. **REST Polling vs WebSockets:** Currently, the frontend polls the `/documents/{id}` endpoint to check when Celery finishes processing. WebSockets would provide instant updates and lower network overhead, but REST polling was chosen for its simplicity and robustness in this initial iteration.
+3. **Chunking Strategy:** `RecursiveCharacterTextSplitter` with 1000 characters and 100 overlap balances context size with retrieval precision. However, this naive approach can sometimes split highly tabular data sub-optimally. A future trade-off could involve using an LLM-based layout parser at the cost of significantly longer processing times.
 
 ---
 Developed with ♥ by **Pratyush** • © 2026

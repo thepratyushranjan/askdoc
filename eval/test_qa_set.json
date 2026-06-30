@@ -1,0 +1,22 @@
+[
+    {
+        "question": "Who are the parties involved in this contract?",
+        "expected_answer": "Pratyush Ranjan and Ayush Sharma"
+    },
+    {
+        "question": "What is the governing law of the agreement?",
+        "expected_answer": "California"
+    },
+    {
+        "question": "What is the total liability cap?",
+        "expected_answer": "$50,000"
+    },
+    {
+        "question": "Does the contract have an auto-renewal clause?",
+        "expected_answer": "No"
+    },
+    {
+        "question": "What happens if there is a breach of confidentiality?",
+        "expected_answer": "The contract can be terminated immediately."
+    }
+]
