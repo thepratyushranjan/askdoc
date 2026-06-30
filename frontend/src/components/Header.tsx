@@ -1,4 +1,5 @@
-import { FileText, PenSquare, PanelLeft, Sparkles } from 'lucide-react';
+import { FileText, PenSquare, PanelLeft, Sparkles, Webhook } from 'lucide-react';
+import type { HealthStatus } from '../api';
 
 interface HeaderProps {
   filename?: string;
@@ -10,6 +11,29 @@ interface HeaderProps {
   onAudit?: () => void;
   isExtracting?: boolean;
   isAuditing?: boolean;
+  health?: HealthStatus | null;
+  onWebhooks?: () => void;
+}
+
+function HealthDot({ health }: { health: HealthStatus | null | undefined }) {
+  if (!health) {
+    return (
+      <span className="health-indicator" title="Backend unreachable">
+        <span className="health-dot health-unknown" />
+      </span>
+    );
+  }
+
+  const allUp = health.status === 'ok';
+  const services = health.services;
+  const title = `Postgres: ${services.postgres} · pgvector: ${services.pgvector} · Redis: ${services.redis}`;
+
+  return (
+    <span className="health-indicator" title={title}>
+      <span className={`health-dot ${allUp ? 'health-ok' : 'health-degraded'}`} />
+      <span className="health-label">{allUp ? 'Online' : 'Degraded'}</span>
+    </span>
+  );
 }
 
 export function Header({
@@ -22,6 +46,8 @@ export function Header({
   onAudit,
   isExtracting,
   isAuditing,
+  health,
+  onWebhooks,
 }: HeaderProps) {
   return (
     <header className="app-header">
@@ -43,6 +69,8 @@ export function Header({
           <span className="brand-text">Askdoc</span>
         </div>
 
+        <HealthDot health={health} />
+
         {filename && (
           <div className="header-doc" title={filename}>
             <FileText size={14} aria-hidden="true" />
@@ -59,7 +87,7 @@ export function Header({
               title="Extract Metadata"
               disabled={isExtracting}
             >
-              <span>{isExtracting ? 'Extracting...' : 'Extract'}</span>
+              <span>{isExtracting ? 'Extracting…' : '📋 Extract'}</span>
             </button>
           )}
           {onAudit && (
@@ -70,7 +98,7 @@ export function Header({
               title="Audit Document"
               disabled={isAuditing}
             >
-              <span>{isAuditing ? 'Auditing...' : 'Audit Risks'}</span>
+              <span>{isAuditing ? 'Auditing…' : '🛡️ Audit Risks'}</span>
             </button>
           )}
           {showNewButton && (
@@ -82,6 +110,17 @@ export function Header({
             >
               <PenSquare size={15} aria-hidden="true" />
               <span>New</span>
+            </button>
+          )}
+          {onWebhooks && (
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={onWebhooks}
+              title="Configure Webhooks"
+            >
+              <Webhook size={15} aria-hidden="true" />
+              <span>Webhooks</span>
             </button>
           )}
         </div>

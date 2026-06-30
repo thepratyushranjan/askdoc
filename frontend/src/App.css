@@ -1091,3 +1091,414 @@ a:hover { color: var(--accent); }
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
 }
+
+/* ============================================================
+   WIDER MODAL VARIANT
+   ============================================================ */
+.modal-wide {
+  max-width: 720px;
+  width: 94%;
+}
+
+/* ============================================================
+   HEALTH INDICATOR
+   ============================================================ */
+.health-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-soft);
+  cursor: default;
+}
+
+.health-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.health-ok {
+  background: #34c759;
+  box-shadow: 0 0 6px rgba(52, 199, 89, 0.45);
+}
+
+.health-degraded {
+  background: #f59e0b;
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.45);
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+.health-unknown {
+  background: var(--text-soft);
+  opacity: 0.5;
+}
+
+.health-label {
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@media (max-width: 640px) {
+  .health-label { display: none; }
+}
+
+/* ============================================================
+   EXTRACT MODAL — Structured Metadata
+   ============================================================ */
+.extract-section {
+  margin-bottom: 18px;
+}
+
+.extract-section-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-soft);
+  margin-bottom: 10px;
+}
+
+.extract-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.extract-tag {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid rgba(217, 119, 87, 0.18);
+}
+
+.extract-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 2px;
+  margin-bottom: 18px;
+  background: var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.extract-field {
+  background: var(--bg-elev);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.extract-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-soft);
+}
+
+.extract-label-icon {
+  display: inline-flex;
+  color: var(--text-muted);
+}
+
+.extract-value {
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.extract-flags {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.extract-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.badge-yes {
+  background: rgba(52, 199, 89, 0.12);
+  color: #22a352;
+  border: 1px solid rgba(52, 199, 89, 0.2);
+}
+
+.badge-no {
+  background: var(--bg-soft);
+  color: var(--text-soft);
+  border: 1px solid var(--border);
+}
+
+@media (prefers-color-scheme: dark) {
+  .badge-yes {
+    background: rgba(52, 199, 89, 0.15);
+    color: #5dd87d;
+  }
+}
+
+/* ============================================================
+   AUDIT MODAL — Risk Report
+   ============================================================ */
+.audit-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+}
+
+.audit-summary-total {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.audit-summary-counts {
+  display: flex;
+  gap: 8px;
+}
+
+.audit-count {
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.audit-count.severity-high {
+  background: rgba(195, 59, 59, 0.1);
+  color: var(--danger);
+}
+
+.audit-count.severity-medium {
+  background: rgba(245, 158, 11, 0.1);
+  color: #d97706;
+}
+
+.audit-count.severity-low {
+  background: rgba(52, 199, 89, 0.1);
+  color: #22a352;
+}
+
+.audit-empty {
+  text-align: center;
+  padding: 32px 16px;
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.audit-empty p {
+  margin: 0;
+  font-size: 14px;
+}
+
+.audit-findings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.audit-finding {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg-elev);
+  transition: box-shadow 0.15s;
+}
+
+.audit-finding:hover {
+  box-shadow: var(--shadow-sm);
+}
+
+.audit-finding.severity-high {
+  border-left: 3px solid var(--danger);
+}
+
+.audit-finding.severity-medium {
+  border-left: 3px solid #f59e0b;
+}
+
+.audit-finding.severity-low {
+  border-left: 3px solid #34c759;
+}
+
+.audit-finding-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  gap: 12px;
+}
+
+.audit-finding-type {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.audit-severity-badge {
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+
+.audit-severity-badge.severity-high {
+  background: rgba(195, 59, 59, 0.1);
+  color: var(--danger);
+}
+
+.audit-severity-badge.severity-medium {
+  background: rgba(245, 158, 11, 0.1);
+  color: #d97706;
+}
+
+.audit-severity-badge.severity-low {
+  background: rgba(52, 199, 89, 0.1);
+  color: #22a352;
+}
+
+.audit-finding-evidence {
+  padding: 0 14px 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.evidence-label {
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-soft);
+  margin-right: 6px;
+}
+
+.audit-finding-evidence q {
+  quotes: none;
+  font-style: italic;
+  background: var(--bg-soft);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.audit-finding-explanation {
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  font-size: 13.5px;
+  color: var(--text);
+  line-height: 1.5;
+  background: var(--bg-soft);
+}
+
+@media (prefers-color-scheme: dark) {
+  .audit-count.severity-medium { color: #fbbf24; }
+  .audit-count.severity-low { color: #5dd87d; }
+  .audit-severity-badge.severity-medium { color: #fbbf24; }
+  .audit-severity-badge.severity-low { color: #5dd87d; }
+}
+
+/* ============================================================
+   TOAST NOTIFICATIONS
+   ============================================================ */
+.toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 420px;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  font-size: 13.5px;
+  box-shadow: var(--shadow-lg);
+  animation: slideUp 0.3s ease-out;
+}
+
+.toast-error {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid rgba(195, 59, 59, 0.2);
+  backdrop-filter: blur(10px);
+}
+
+@media (prefers-color-scheme: dark) {
+  .toast-error {
+    background: rgba(236, 106, 106, 0.15);
+    border-color: rgba(236, 106, 106, 0.25);
+  }
+}
+
+.toast-close {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-size: 14px;
+  padding: 4px;
+  cursor: pointer;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.toast-close:hover {
+  opacity: 1;
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 480px) {
+  .toast-container {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    max-width: none;
+  }
+}

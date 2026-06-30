@@ -95,12 +95,11 @@ curl -X POST "http://localhost:8069/api/v1/extract" \
 Ask a grounded question and get citations.
 
 ```bash
-curl -X POST "http://localhost:8069/api/v1/ask" \
+curl -X POST "http://localhost:8069/api/v1/chat/conversations/<conversations_id>/ask" \
   -H "accept: application/json" \
   -H "Content-Type: application/json" \
   -d '{
-        "query": "What is the liability cap?",
-        "document_ids": ["<DOCUMENT-ID>"]
+        "message": "What is the liability cap?"
       }'
 ```
 

@@ -74,7 +74,16 @@ async def extract_contract_data(db: AsyncSession, document_id: UUID) -> Extracte
     document.extracted_data = extracted_data.model_dump()
     document.extracted_at = datetime.utcnow()
     await db.commit()
-    
+
+    # 5. Fire webhook
+    from app.services.webhook_service import fire_webhooks
+    from app.models.webhook import WebhookEvent
+    await fire_webhooks(
+        event=WebhookEvent.EXTRACTION_COMPLETED,
+        document_id=document_id,
+        status="completed",
+    )
+
     return extracted_data
 
 @retry(
@@ -135,5 +144,14 @@ async def audit_contract(db: AsyncSession, document_id: UUID) -> AuditReport:
     document.audit_report = audit_report.model_dump()
     document.audited_at = datetime.utcnow()
     await db.commit()
-    
+
+    # 5. Fire webhook
+    from app.services.webhook_service import fire_webhooks
+    from app.models.webhook import WebhookEvent
+    await fire_webhooks(
+        event=WebhookEvent.AUDIT_COMPLETED,
+        document_id=document_id,
+        status="completed",
+    )
+
     return audit_report

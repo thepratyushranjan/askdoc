@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError, api } from './api';
-import type { ServerMessage } from './api';
+import type { ServerMessage, ExtractedData, AuditReport, HealthStatus } from './api';
 import { Header } from './components/Header';
 import { UploadView } from './components/UploadView';
 import { ChatView } from './components/ChatView';
@@ -8,7 +8,9 @@ import { Composer } from './components/Composer';
 import { Sidebar } from './components/Sidebar';
 import type { HistoryItem } from './components/Sidebar';
 import type { UiMessage } from './components/MessageItem';
-import { Modal } from './components/Modal';
+import { ExtractModal } from './components/ExtractModal';
+import { AuditModal } from './components/AuditModal';
+import { WebhookModal } from './components/WebhookModal';
 import './App.css';
 
 type Phase =
@@ -20,6 +22,15 @@ type Phase =
 
 const SESSION_KEY = 'askdoc.session.v1';
 const HISTORY_KEY = 'askdoc.history.v1';
+
+/** Hardcoded starter suggestions (no /suggest backend endpoint exists) */
+const DEFAULT_SUGGESTIONS = [
+  'Summarize this document in five bullet points',
+  'What are the key dates or numbers mentioned?',
+  'List the main arguments or findings',
+  'Explain the most important section in plain language',
+  'Are there any risks, caveats, or open questions?',
+];
 
 interface PersistedSession {
   documentId: string;
@@ -83,19 +94,59 @@ export default function App() {
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [input, setInput] = useState('');
+  const [useStream, setUseStream] = useState(false);
   const [isResponding, setIsResponding] = useState(false);
   const [history, setHistory] = useState<HistoryItem[]>(() => loadHistory());
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [extractedData, setExtractedData] = useState<any>(null);
-  const [auditReport, setAuditReport] = useState<any>(null);
+
+  // Extract & Audit state — properly typed
+  const [extractedData, setExtractedData] = useState<ExtractedData | null>(null);
+  const [auditReport, setAuditReport] = useState<AuditReport | null>(null);
   const [isExtracting, setIsExtracting] = useState(false);
   const [isAuditing, setIsAuditing] = useState(false);
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [extractError, setExtractError] = useState<string | null>(null);
+  const [auditError, setAuditError] = useState<string | null>(null);
+  const [isWebhookModalOpen, setIsWebhookModalOpen] = useState(false);
+
+  // System health
+  const [health, setHealth] = useState<HealthStatus | null>(null);
 
   const [initialSession] = useState<PersistedSession | null>(() => loadSession());
   const [restoring, setRestoring] = useState(initialSession !== null);
 
-  // Restore last session on mount.
+  // ── Health polling (every 30s) ──
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const h = await api.getHealth();
+        if (!cancelled) setHealth(h);
+      } catch {
+        if (!cancelled) setHealth(null);
+      }
+    };
+    check();
+    const interval = setInterval(check, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
+  // ── Auto-dismiss error toasts after 6s ──
+  useEffect(() => {
+    if (!extractError) return;
+    const t = setTimeout(() => setExtractError(null), 6000);
+    return () => clearTimeout(t);
+  }, [extractError]);
+
+  useEffect(() => {
+    if (!auditError) return;
+    const t = setTimeout(() => setAuditError(null), 6000);
+    return () => clearTimeout(t);
+  }, [auditError]);
+
+  // ── Restore last session on mount ──
   useEffect(() => {
     if (!initialSession) return;
     const session = initialSession;
@@ -129,7 +180,7 @@ export default function App() {
     };
   }, [initialSession]);
 
-  // Poll document status while processing.
+  // ── Poll document status while processing ──
   useEffect(() => {
     if (phase.kind !== 'processing') return;
     const { documentId, filename } = phase;
@@ -199,38 +250,13 @@ export default function App() {
     };
   }, [phase]);
 
-  // Fetch dynamic suggestions when the chat is ready but empty
-  useEffect(() => {
-    if (phase.kind === 'ready' && messages.length <= 1) {
-      let cancelled = false;
-      api.getSuggestions(phase.documentId)
-        .then((res) => {
-          if (!cancelled) setSuggestions(res.questions);
-        })
-        .catch(() => {
-          if (!cancelled) {
-            setSuggestions([
-              'Summarize this document in five bullet points',
-              'What are the key dates or numbers mentioned?',
-              'List the main arguments or findings',
-              'Explain the most important section in plain language',
-              'Are there any risks, caveats, or open questions?',
-            ]);
-          }
-        });
-      return () => {
-        cancelled = true;
-      };
-    }
-  }, [phase, messages.length]);
+  // ── Handlers ──
 
   const handleUpload = useCallback(async (files: File[]) => {
     setPhase({ kind: 'uploading' });
     try {
       const res = await api.uploadDocument(files);
       if (res.data && res.data.length > 0) {
-        // Just track the first document ID for status polling, or if they uploaded multiple, we track the first one
-        // Ideally we'd poll all, but this works for demo
         const doc = res.data[0];
         setPhase({
           kind: 'processing',
@@ -258,7 +284,8 @@ export default function App() {
     setPhase({ kind: 'idle' });
     setExtractedData(null);
     setAuditReport(null);
-    setSuggestions([]);
+    setExtractError(null);
+    setAuditError(null);
   }, []);
 
   const handleSelectHistory = useCallback(async (item: HistoryItem) => {
@@ -308,6 +335,7 @@ export default function App() {
     [phase, handleNewChat]
   );
 
+  /** Uses conversation-aware endpoint for message persistence & follow-ups */
   const handleSend = useCallback(
     async (overrideText?: string) => {
       if (phase.kind !== 'ready') return;
@@ -332,20 +360,35 @@ export default function App() {
       setIsResponding(true);
 
       try {
-        const res = await api.ask(phase.documentId, text);
-        const cleanAnswer = res.answer.replace(/\[Doc:.*?\]/g, '').replace(/ +/g, ' ').trim();
-        setMessages((m) =>
-          m.map((msg) =>
-            msg.id === pendingId
-              ? {
-                  ...msg,
-                  content: cleanAnswer + (res.citations && res.citations.length > 0 ? `\n\n**Sources:** ${res.citations.map(c => `[Doc ${c.document_id.substring(0, 4)} Page ${c.page || c.chunk_index || 'N/A'}]`).join(', ')}` : ''),
-                  pending: false,
-                  followUps: Array.isArray(res.follow_ups) ? res.follow_ups : [],
-                }
-              : msg
-          )
-        );
+        if (useStream) {
+          // Use Server-Sent Events (SSE) streaming. Does not persist to history.
+          let finalAnswer = '';
+          await api.askStream([phase.documentId], text, (chunk) => {
+            finalAnswer += chunk;
+            setMessages((m) =>
+              m.map((msg) =>
+                msg.id === pendingId
+                  ? { ...msg, content: finalAnswer, pending: false }
+                  : msg
+              )
+            );
+          });
+        } else {
+          // Use conversation-aware endpoint that persists messages & provides follow-ups
+          const res = await api.askConversation(phase.conversationId, text);
+          setMessages((m) =>
+            m.map((msg) =>
+              msg.id === pendingId
+                ? {
+                    ...msg,
+                    content: res.answer,
+                    pending: false,
+                    followUps: Array.isArray(res.follow_ups) ? res.follow_ups : [],
+                  }
+                : msg
+            )
+          );
+        }
       } catch (err) {
         const message =
           err instanceof ApiError
@@ -365,27 +408,37 @@ export default function App() {
     [input, phase]
   );
 
+  /** Fix #7: Show user-visible error on extract failure */
   const handleExtract = useCallback(async () => {
     if (phase.kind !== 'ready') return;
     setIsExtracting(true);
+    setExtractError(null);
     try {
       const res = await api.extractMetadata(phase.documentId);
       setExtractedData(res.extracted_data);
     } catch (err) {
-      console.error("Extraction failed", err);
+      const message = err instanceof ApiError
+        ? err.message
+        : 'Failed to extract metadata. Please try again.';
+      setExtractError(message);
     } finally {
       setIsExtracting(false);
     }
   }, [phase]);
 
+  /** Fix #7: Show user-visible error on audit failure */
   const handleAudit = useCallback(async () => {
     if (phase.kind !== 'ready') return;
     setIsAuditing(true);
+    setAuditError(null);
     try {
       const res = await api.auditDocument(phase.documentId);
       setAuditReport(res.audit_report);
     } catch (err) {
-      console.error("Audit failed", err);
+      const message = err instanceof ApiError
+        ? err.message
+        : 'Failed to audit document. Please try again.';
+      setAuditError(message);
     } finally {
       setIsAuditing(false);
     }
@@ -418,6 +471,8 @@ export default function App() {
           onAudit={isReady ? handleAudit : undefined}
           isExtracting={isExtracting}
           isAuditing={isAuditing}
+          health={health}
+          onWebhooks={() => setIsWebhookModalOpen(true)}
         />
 
         <main className="app-main">
@@ -431,7 +486,7 @@ export default function App() {
               isResponding={isResponding}
               onSuggestion={(t) => handleSend(t)}
               filename={filename}
-              suggestions={suggestions}
+              suggestions={DEFAULT_SUGGESTIONS}
             />
           ) : (
             <UploadView
@@ -457,30 +512,48 @@ export default function App() {
             onSubmit={() => handleSend()}
             disabled={isResponding}
             isResponding={isResponding}
+            useStream={useStream}
+            onToggleStream={setUseStream}
           />
         )}
       </div>
 
-      <Modal
-        title="Extracted Metadata"
+      {/* Fix #6: Structured modal for extracted metadata */}
+      <ExtractModal
+        data={extractedData}
         isOpen={!!extractedData}
         onClose={() => setExtractedData(null)}
-      >
-        <div className="json-display">
-          {extractedData && JSON.stringify(extractedData, null, 2)}
-        </div>
-      </Modal>
+      />
 
-      <Modal
-        title="Risk Audit Report"
+      {/* Fix #6: Structured modal for audit report */}
+      <AuditModal
+        report={auditReport}
         isOpen={!!auditReport}
         onClose={() => setAuditReport(null)}
-      >
-        <div className="json-display">
-          {auditReport && JSON.stringify(auditReport, null, 2)}
-        </div>
-      </Modal>
+      />
 
+      <WebhookModal 
+        isOpen={isWebhookModalOpen}
+        onClose={() => setIsWebhookModalOpen(false)}
+      />
+
+      {/* Fix #7: Error toast notifications */}
+      {(extractError || auditError) && (
+        <div className="toast-container">
+          {extractError && (
+            <div className="toast toast-error" role="alert">
+              <span>⚠️ Extraction failed: {extractError}</span>
+              <button className="toast-close" onClick={() => setExtractError(null)} aria-label="Dismiss">✕</button>
+            </div>
+          )}
+          {auditError && (
+            <div className="toast toast-error" role="alert">
+              <span>⚠️ Audit failed: {auditError}</span>
+              <button className="toast-close" onClick={() => setAuditError(null)} aria-label="Dismiss">✕</button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

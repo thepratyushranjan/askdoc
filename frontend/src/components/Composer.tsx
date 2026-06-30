@@ -10,6 +10,8 @@ interface ComposerProps {
   isResponding?: boolean;
   onStop?: () => void;
   placeholder?: string;
+  useStream?: boolean;
+  onToggleStream?: (val: boolean) => void;
 }
 
 export function Composer({
@@ -20,6 +22,8 @@ export function Composer({
   isResponding,
   onStop,
   placeholder = 'Ask anything about your document…',
+  useStream,
+  onToggleStream,
 }: ComposerProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -60,9 +64,21 @@ export function Composer({
           aria-label="Message"
         />
         <div className="composer-bar">
-          <span className="composer-hint">
-            <kbd>Enter</kbd> to send · <kbd>Shift + Enter</kbd> for new line
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            {onToggleStream && (
+              <label className="stream-toggle" style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                <input 
+                  type="checkbox" 
+                  checked={useStream} 
+                  onChange={(e) => onToggleStream(e.target.checked)} 
+                />
+                Stream SSE
+              </label>
+            )}
+            <span className="composer-hint">
+              <kbd>Enter</kbd> to send · <kbd>Shift + Enter</kbd> for new line
+            </span>
+          </div>
           {isResponding && onStop ? (
             <button
               type="button"

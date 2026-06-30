@@ -10,6 +10,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.models.models import DocumentChunk
 from app.schemas.ask import AskResponse, Citation
+from app.services.prompts import RAG_SYSTEM_PROMPT
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
 def get_embedding_with_retry(query: str):
@@ -42,11 +43,6 @@ def format_context(chunks: List[DocumentChunk]) -> str:
         formatted.append(f"[Doc: {chunk.document_id}, Chunk: {chunk.chunk_index}]\n{chunk.content}")
     return "\n\n".join(formatted)
 
-SYSTEM_PROMPT = """You are a strictly grounded AI assistant.
-Answer strictly using the provided context. 
-If the answer is not in the context, say 'I don't know'.
-Always cite your sources using the provided Doc and Chunk markers (e.g., [Doc: <id>, Chunk: <index>])."""
-
 class InternalAskResponse(BaseModel):
     answer: str
     citations: List[Citation]
@@ -56,8 +52,9 @@ def generate_content_with_retry(prompt: str):
     client = genai.Client()
     return client.models.generate_content(
         model='gemini-2.5-flash',
-        contents=[SYSTEM_PROMPT, prompt],
+        contents=prompt,
         config=types.GenerateContentConfig(
+            system_instruction=RAG_SYSTEM_PROMPT,
             response_mime_type="application/json",
             response_schema=InternalAskResponse,
             temperature=0.0
@@ -66,6 +63,17 @@ def generate_content_with_retry(prompt: str):
 
 async def answer_query(db: AsyncSession, query: str, document_ids: Optional[List[UUID]] = None) -> AskResponse:
     chunks = await search_chunks(db, query, document_ids)
+    if not chunks and document_ids:
+        # Fallback: Fetch first 5 chunks if no semantic matches found
+        stmt_fallback = (
+            select(DocumentChunk)
+            .where(DocumentChunk.document_id.in_(document_ids))
+            .order_by(DocumentChunk.chunk_index.asc())
+            .limit(5)
+        )
+        fallback_res = await db.execute(stmt_fallback)
+        chunks = list(fallback_res.scalars().all())
+
     if not chunks:
         return AskResponse(answer="I don't know.", citations=[])
 
@@ -91,6 +99,17 @@ async def answer_query(db: AsyncSession, query: str, document_ids: Optional[List
 
 async def stream_answer_query(db: AsyncSession, query: str, document_ids: Optional[List[UUID]] = None) -> AsyncGenerator[str, None]:
     chunks = await search_chunks(db, query, document_ids)
+    if not chunks and document_ids:
+        # Fallback: Fetch first 5 chunks if no semantic matches found
+        stmt_fallback = (
+            select(DocumentChunk)
+            .where(DocumentChunk.document_id.in_(document_ids))
+            .order_by(DocumentChunk.chunk_index.asc())
+            .limit(5)
+        )
+        fallback_res = await db.execute(stmt_fallback)
+        chunks = list(fallback_res.scalars().all())
+
     if not chunks:
         yield "I don't know."
         return
@@ -102,8 +121,11 @@ async def stream_answer_query(db: AsyncSession, query: str, document_ids: Option
     try:
         response = client.models.generate_content_stream(
             model='gemini-2.5-flash',
-            contents=[SYSTEM_PROMPT, prompt],
-            config=types.GenerateContentConfig(temperature=0.0)
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=RAG_SYSTEM_PROMPT,
+                temperature=0.0
+            )
         )
         for chunk in response:
             if chunk.text:

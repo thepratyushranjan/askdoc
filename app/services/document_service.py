@@ -126,7 +126,17 @@ async def _process_document_async(doc_id: UUID):
             doc.status = DocumentStatus.COMPLETED
             await db.commit()
             print(f"Successfully processed document: {doc.filename}")
-            
+
+            # 7. Fire webhook notification
+            from app.services.webhook_service import fire_webhooks
+            from app.models.webhook import WebhookEvent
+            await fire_webhooks(
+                event=WebhookEvent.INGESTION_COMPLETED,
+                document_id=doc.id,
+                status="completed",
+                data={"filename": doc.filename, "chunks": len(chunks)},
+            )
+
         except Exception as e:
             await db.rollback()
             # Fetch doc again in case it's detached
@@ -137,4 +147,14 @@ async def _process_document_async(doc_id: UUID):
                 doc.status = DocumentStatus.FAILED
                 doc.error_log = str(e)
                 await db.commit()
+
+                # Fire failure webhook
+                from app.services.webhook_service import fire_webhooks
+                from app.models.webhook import WebhookEvent
+                await fire_webhooks(
+                    event=WebhookEvent.INGESTION_FAILED,
+                    document_id=doc.id,
+                    status="failed",
+                    data={"error": str(e)},
+                )
             print(f"Failed to process document {doc_id}: {e}")
