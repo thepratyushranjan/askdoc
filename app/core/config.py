@@ -22,8 +22,6 @@ class Settings(BaseSettings):
 
     # App Settings
     MEDIA_DIR: str = "media"
-    VECTOR_STORE_DIR: str = "vector_store"
-    EMBEDDING_MODEL_NAME: str = "all-MiniLM-L6-v2"
     
     # Gemini (via OpenAI)
     GEMINI_API_KEY: Optional[str] = None

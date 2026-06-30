@@ -2,15 +2,13 @@ import os
 import re
 import json
 import asyncio
-import faiss
-import pickle
 from typing import List, Tuple
 from uuid import UUID
 from openai import AsyncOpenAI
-from sentence_transformers import SentenceTransformer
+from google import genai
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.models.models import Conversation, Message, MessageRole, Document, DocumentStatus
+from app.models.models import Conversation, Message, MessageRole, Document, DocumentStatus, DocumentChunk
 from app.core.config import settings
 from app.services.prompts import (
     RAG_SYSTEM_PROMPT,
@@ -25,9 +23,6 @@ CONDENSE_HISTORY_WINDOW = 6
 
 LLM_MODEL = "gemini-2.5-flash"
 
-# Load the embedding model globally
-model = SentenceTransformer(settings.EMBEDDING_MODEL_NAME)
-
 # Initialize OpenAI client pointed to Gemini
 client = AsyncOpenAI(
     api_key=settings.GEMINI_API_KEY,
@@ -35,33 +30,29 @@ client = AsyncOpenAI(
 )
 
 
-def search_faiss_sync(query: str, document_id: UUID, top_k: int = 5) -> List[str]:
-    """Searches FAISS for the most relevant chunks for a specific document."""
-    index_path = os.path.join(settings.VECTOR_STORE_DIR, "index.faiss")
-    metadata_path = os.path.join(settings.VECTOR_STORE_DIR, "metadata.pkl")
-
-    if not os.path.exists(index_path) or not os.path.exists(metadata_path):
+async def search_pgvector_async(db: AsyncSession, query: str, document_id: UUID, top_k: int = 5) -> List[str]:
+    """Searches PostgreSQL vector database for the most relevant chunks for a specific document."""
+    try:
+        genai_client = genai.Client()
+        response = genai_client.models.embed_content(
+            model='gemini-embedding-2',
+            contents=[query]
+        )
+        query_embedding = response.embeddings[0].values
+    except Exception as e:
+        print(f"Error embedding query: {e}")
         return []
 
-    index = faiss.read_index(index_path)
-    with open(metadata_path, "rb") as f:
-        metadata = pickle.load(f)
-
-    query_embedding = model.encode([query])
-    # Search a wider range of candidates to account for other documents in the index
-    search_k = min(len(metadata), top_k * 20) if metadata else top_k * 3
-    distances, indices = index.search(query_embedding.astype("float32"), search_k)
-
-    relevant_chunks = []
-    for idx in indices[0]:
-        if idx != -1 and idx < len(metadata):
-            meta = metadata[idx]
-            if meta["document_id"] == str(document_id):
-                relevant_chunks.append(meta["content"])
-                if len(relevant_chunks) >= top_k:
-                    break
-
-    return relevant_chunks
+    stmt = (
+        select(DocumentChunk)
+        .where(DocumentChunk.document_id == document_id)
+        .where(DocumentChunk.embedding != None)
+        .order_by(DocumentChunk.embedding.l2_distance(query_embedding))
+        .limit(top_k)
+    )
+    res = await db.execute(stmt)
+    chunks = res.scalars().all()
+    return [c.content for c in chunks]
 
 
 async def condense_question(history: List[Message], question: str) -> str:
@@ -161,10 +152,8 @@ async def process_chat_message(
     # 3. Condense follow-up questions into a standalone search query.
     search_query = await condense_question(history, user_message)
 
-    # 4. Retrieve context via FAISS using the condensed query.
-    context_chunks = await asyncio.to_thread(
-        search_faiss_sync, search_query, conversation.document_id
-    )
+    # 4. Retrieve context via pgvector using the condensed query.
+    context_chunks = await search_pgvector_async(db, search_query, conversation.document_id)
     
     if not context_chunks:
         # Fallback: Fetch first 5 chunks if no semantic matches found (helpful for general questions)

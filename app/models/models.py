@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from sqlalchemy import ForeignKey, String, Text, DateTime, Enum as SQLEnum
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -30,8 +31,15 @@ class Document(Base):
     error_log: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+    extracted_data: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    extracted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    audit_report: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    audited_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
     chunks: Mapped[List["DocumentChunk"]] = relationship(back_populates="document", cascade="all, delete-orphan")
     conversations: Mapped[List["Conversation"]] = relationship(back_populates="document", cascade="all, delete-orphan")
+
+from pgvector.sqlalchemy import Vector
 
 class DocumentChunk(Base):
     __tablename__ = "document_chunks"
@@ -40,6 +48,7 @@ class DocumentChunk(Base):
     document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"))
     content: Mapped[str] = mapped_column(Text)
     chunk_index: Mapped[int] = mapped_column()
+    embedding: Mapped[Optional[list[float]]] = mapped_column(Vector(768), nullable=True)
 
     document: Mapped["Document"] = relationship(back_populates="chunks")
 
