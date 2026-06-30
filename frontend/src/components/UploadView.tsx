@@ -10,7 +10,7 @@ type Phase =
 
 interface UploadViewProps {
   phase: Phase;
-  onUpload: (file: File) => void;
+  onUpload: (files: File[]) => void;
   onRetry: () => void;
 }
 
@@ -41,26 +41,29 @@ export function UploadView({ phase, onUpload, onRetry }: UploadViewProps) {
 
   const isBusy = phase.kind === 'uploading' || phase.kind === 'processing';
 
-  const handleFile = (file: File | undefined) => {
-    if (!file) return;
-    const err = validate(file);
-    if (err) {
-      setLocalError(err);
-      return;
+  const handleFiles = (files: FileList | File[] | undefined | null) => {
+    if (!files || files.length === 0) return;
+    const fileArray = Array.from(files);
+    for (const file of fileArray) {
+      const err = validate(file);
+      if (err) {
+        setLocalError(err);
+        return;
+      }
     }
     setLocalError(null);
-    onUpload(file);
+    onUpload(fileArray);
   };
 
   const onDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setDragActive(false);
     if (isBusy) return;
-    handleFile(e.dataTransfer.files?.[0]);
+    handleFiles(e.dataTransfer.files);
   };
 
   const onChange = (e: ChangeEvent<HTMLInputElement>) => {
-    handleFile(e.target.files?.[0]);
+    handleFiles(e.target.files);
     e.target.value = '';
   };
 
@@ -135,7 +138,7 @@ export function UploadView({ phase, onUpload, onRetry }: UploadViewProps) {
             )}
           </div>
           <div className="upload-card-title">
-            {phase.kind === 'uploading' ? 'Uploading…' : 'Drop a file or click to browse'}
+            {phase.kind === 'uploading' ? 'Uploading…' : 'Drop files or click to browse'}
           </div>
           <div className="upload-card-sub">
             PDF or DOCX · up to 25 MB
@@ -144,6 +147,7 @@ export function UploadView({ phase, onUpload, onRetry }: UploadViewProps) {
           <input
             ref={inputRef}
             type="file"
+            multiple
             accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             className="visually-hidden"
             onChange={onChange}

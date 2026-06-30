@@ -7,17 +7,10 @@ interface ChatViewProps {
   isResponding: boolean;
   onSuggestion: (text: string) => void;
   filename?: string;
+  suggestions?: string[];
 }
 
-const SUGGESTIONS = [
-  'Summarize this document in five bullet points',
-  'What are the key dates or numbers mentioned?',
-  'List the main arguments or findings',
-  'Explain the most important section in plain language',
-  'Are there any risks, caveats, or open questions?',
-];
-
-export function ChatView({ messages, isResponding, onSuggestion, filename }: ChatViewProps) {
+export function ChatView({ messages, isResponding, onSuggestion, filename, suggestions = [] }: ChatViewProps) {
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -60,9 +53,9 @@ export function ChatView({ messages, isResponding, onSuggestion, filename }: Cha
           />
         ))}
 
-        {showStarterSuggestions && (
+        {showStarterSuggestions && suggestions.length > 0 && (
           <div className="suggestions" aria-label="Suggested prompts">
-            {SUGGESTIONS.map((s) => (
+            {suggestions.map((s) => (
               <button
                 key={s}
                 type="button"

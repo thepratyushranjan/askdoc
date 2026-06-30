@@ -23,7 +23,28 @@ export interface ConversationResponse {
 
 export interface AskResponse {
   answer: string;
-  follow_ups: string[];
+  follow_ups?: string[];
+  citations?: any[];
+}
+
+export interface SuggestResponse {
+  document_id: string;
+  questions: string[];
+}
+
+export interface ExtractionResponse {
+  document_id: string;
+  extracted_data: any;
+}
+
+export interface AuditResponse {
+  document_id: string;
+  audit_report: any;
+}
+
+export interface IngestResponse {
+  message: string;
+  data: { document_id: string; filename: string; status: DocumentStatus }[];
 }
 
 const BASE = '/api/v1';
@@ -59,17 +80,33 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  uploadDocument(file: File): Promise<DocumentResponse> {
+  uploadDocument(files: File[]): Promise<IngestResponse> {
     const formData = new FormData();
-    formData.append('file', file);
-    return request<DocumentResponse>('/documents/upload', {
+    files.forEach(f => formData.append('files', f));
+    return request<IngestResponse>('/ingest', {
       method: 'POST',
       body: formData,
     });
   },
 
-  getDocument(id: string): Promise<DocumentResponse> {
-    return request<DocumentResponse>(`/documents/${id}`);
+  getDocumentStatus(id: string): Promise<{ document_id: string; status: DocumentStatus; ready_for_extraction: boolean }> {
+    return request<{ document_id: string; status: DocumentStatus; ready_for_extraction: boolean }>(`/ingest/status/${id}`);
+  },
+
+  extractMetadata(documentId: string): Promise<ExtractionResponse> {
+    return request<ExtractionResponse>('/extract', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ document_id: documentId }),
+    });
+  },
+
+  auditDocument(documentId: string): Promise<AuditResponse> {
+    return request<AuditResponse>('/audit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ document_id: documentId }),
+    });
   },
 
   createConversation(documentId: string): Promise<ConversationResponse> {
@@ -82,11 +119,53 @@ export const api = {
     return request<ConversationResponse>(`/chat/conversations/${id}`);
   },
 
-  ask(conversationId: string, message: string): Promise<AskResponse> {
-    return request<AskResponse>(`/chat/conversations/${conversationId}/ask`, {
+  ask(documentId: string, message: string): Promise<AskResponse> {
+    return request<AskResponse>(`/ask`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ query: message, document_ids: [documentId] }),
     });
+  },
+
+  async askStream(documentId: string, message: string, onUpdate: (chunk: string) => void): Promise<void> {
+    const url = `${BASE}/ask/stream?query=${encodeURIComponent(message)}&document_ids=${encodeURIComponent(documentId)}`;
+    const res = await fetch(url, { headers: { accept: 'text/event-stream' } });
+    if (!res.ok) throw new ApiError(`Request failed (${res.status})`, res.status);
+    if (!res.body) throw new Error('ReadableStream not supported');
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let done = false;
+
+    while (!done) {
+      const { value, done: readerDone } = await reader.read();
+      done = readerDone;
+      if (value) {
+        const chunkStr = decoder.decode(value, { stream: true });
+        const lines = chunkStr.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.replace('data: ', '').trim();
+            if (dataStr === '[DONE]') {
+              return;
+            }
+            if (dataStr) {
+              try {
+                const parsed = JSON.parse(dataStr);
+                if (parsed.text) {
+                  onUpdate(parsed.text);
+                }
+              } catch (e) {
+                // ignore parse error
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+
+  getSuggestions(documentId: string): Promise<SuggestResponse> {
+    return request<SuggestResponse>(`/suggest/${documentId}`);
   },
 };

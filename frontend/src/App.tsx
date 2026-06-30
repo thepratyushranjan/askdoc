@@ -8,6 +8,7 @@ import { Composer } from './components/Composer';
 import { Sidebar } from './components/Sidebar';
 import type { HistoryItem } from './components/Sidebar';
 import type { UiMessage } from './components/MessageItem';
+import { Modal } from './components/Modal';
 import './App.css';
 
 type Phase =
@@ -85,6 +86,11 @@ export default function App() {
   const [isResponding, setIsResponding] = useState(false);
   const [history, setHistory] = useState<HistoryItem[]>(() => loadHistory());
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [extractedData, setExtractedData] = useState<any>(null);
+  const [auditReport, setAuditReport] = useState<any>(null);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [isAuditing, setIsAuditing] = useState(false);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
 
   const [initialSession] = useState<PersistedSession | null>(() => loadSession());
   const [restoring, setRestoring] = useState(initialSession !== null);
@@ -133,19 +139,27 @@ export default function App() {
 
     const tick = async () => {
       try {
-        const doc = await api.getDocument(documentId);
+        const doc = await api.getDocumentStatus(documentId);
         if (cancelled) return;
 
         if (doc.status === 'completed') {
-          const conv = await api.createConversation(documentId);
+          // Attempt to create conversation immediately, if it fails, oh well
+          let convId = documentId; // Fallback to document ID if creation fails or isn't needed
+          try {
+            const conv = await api.createConversation(documentId);
+            convId = conv.id;
+          } catch(e) {
+            console.log("Could not create conversation immediately or endpoint removed", e);
+          }
+          
           if (cancelled) return;
-          saveSession({ documentId, conversationId: conv.id, filename });
+          saveSession({ documentId, conversationId: convId, filename });
 
           // Append to history.
           setHistory((prev) => {
             const next = [
-              { documentId, conversationId: conv.id, filename, createdAt: Date.now() },
-              ...prev.filter((h) => h.conversationId !== conv.id),
+              { documentId, conversationId: convId, filename, createdAt: Date.now() },
+              ...prev.filter((h) => h.conversationId !== convId),
             ];
             saveHistory(next);
             return next;
@@ -154,7 +168,7 @@ export default function App() {
           setPhase({
             kind: 'ready',
             documentId,
-            conversationId: conv.id,
+            conversationId: convId,
             filename,
           });
           setMessages([welcomeMessage(filename)]);
@@ -185,15 +199,47 @@ export default function App() {
     };
   }, [phase]);
 
-  const handleUpload = useCallback(async (file: File) => {
+  // Fetch dynamic suggestions when the chat is ready but empty
+  useEffect(() => {
+    if (phase.kind === 'ready' && messages.length <= 1) {
+      let cancelled = false;
+      api.getSuggestions(phase.documentId)
+        .then((res) => {
+          if (!cancelled) setSuggestions(res.questions);
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setSuggestions([
+              'Summarize this document in five bullet points',
+              'What are the key dates or numbers mentioned?',
+              'List the main arguments or findings',
+              'Explain the most important section in plain language',
+              'Are there any risks, caveats, or open questions?',
+            ]);
+          }
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+  }, [phase, messages.length]);
+
+  const handleUpload = useCallback(async (files: File[]) => {
     setPhase({ kind: 'uploading' });
     try {
-      const doc = await api.uploadDocument(file);
-      setPhase({
-        kind: 'processing',
-        documentId: doc.id,
-        filename: doc.filename,
-      });
+      const res = await api.uploadDocument(files);
+      if (res.data && res.data.length > 0) {
+        // Just track the first document ID for status polling, or if they uploaded multiple, we track the first one
+        // Ideally we'd poll all, but this works for demo
+        const doc = res.data[0];
+        setPhase({
+          kind: 'processing',
+          documentId: doc.document_id,
+          filename: res.data.map(d => d.filename).join(', '),
+        });
+      } else {
+        throw new Error('No document returned');
+      }
     } catch (err) {
       const message =
         err instanceof ApiError
@@ -210,6 +256,9 @@ export default function App() {
     setIsResponding(false);
     setSidebarOpen(false);
     setPhase({ kind: 'idle' });
+    setExtractedData(null);
+    setAuditReport(null);
+    setSuggestions([]);
   }, []);
 
   const handleSelectHistory = useCallback(async (item: HistoryItem) => {
@@ -283,13 +332,14 @@ export default function App() {
       setIsResponding(true);
 
       try {
-        const res = await api.ask(phase.conversationId, text);
+        const res = await api.ask(phase.documentId, text);
+        const cleanAnswer = res.answer.replace(/\[Doc:.*?\]/g, '').replace(/ +/g, ' ').trim();
         setMessages((m) =>
           m.map((msg) =>
             msg.id === pendingId
               ? {
                   ...msg,
-                  content: res.answer,
+                  content: cleanAnswer + (res.citations && res.citations.length > 0 ? `\n\n**Sources:** ${res.citations.map(c => `[Doc ${c.document_id.substring(0, 4)} Page ${c.page || c.chunk_index || 'N/A'}]`).join(', ')}` : ''),
                   pending: false,
                   followUps: Array.isArray(res.follow_ups) ? res.follow_ups : [],
                 }
@@ -315,6 +365,32 @@ export default function App() {
     [input, phase]
   );
 
+  const handleExtract = useCallback(async () => {
+    if (phase.kind !== 'ready') return;
+    setIsExtracting(true);
+    try {
+      const res = await api.extractMetadata(phase.documentId);
+      setExtractedData(res.extracted_data);
+    } catch (err) {
+      console.error("Extraction failed", err);
+    } finally {
+      setIsExtracting(false);
+    }
+  }, [phase]);
+
+  const handleAudit = useCallback(async () => {
+    if (phase.kind !== 'ready') return;
+    setIsAuditing(true);
+    try {
+      const res = await api.auditDocument(phase.documentId);
+      setAuditReport(res.audit_report);
+    } catch (err) {
+      console.error("Audit failed", err);
+    } finally {
+      setIsAuditing(false);
+    }
+  }, [phase]);
+
   const isReady = phase.kind === 'ready';
   const filename = phase.kind === 'ready' || phase.kind === 'processing' ? phase.filename : undefined;
   const activeConversationId = phase.kind === 'ready' ? phase.conversationId : undefined;
@@ -338,6 +414,10 @@ export default function App() {
           showNewButton={phase.kind !== 'idle' && phase.kind !== 'uploading'}
           onToggleSidebar={() => setSidebarOpen((o) => !o)}
           sidebarOpen={sidebarOpen}
+          onExtract={isReady ? handleExtract : undefined}
+          onAudit={isReady ? handleAudit : undefined}
+          isExtracting={isExtracting}
+          isAuditing={isAuditing}
         />
 
         <main className="app-main">
@@ -351,6 +431,7 @@ export default function App() {
               isResponding={isResponding}
               onSuggestion={(t) => handleSend(t)}
               filename={filename}
+              suggestions={suggestions}
             />
           ) : (
             <UploadView
@@ -379,6 +460,27 @@ export default function App() {
           />
         )}
       </div>
+
+      <Modal
+        title="Extracted Metadata"
+        isOpen={!!extractedData}
+        onClose={() => setExtractedData(null)}
+      >
+        <div className="json-display">
+          {extractedData && JSON.stringify(extractedData, null, 2)}
+        </div>
+      </Modal>
+
+      <Modal
+        title="Risk Audit Report"
+        isOpen={!!auditReport}
+        onClose={() => setAuditReport(null)}
+      >
+        <div className="json-display">
+          {auditReport && JSON.stringify(auditReport, null, 2)}
+        </div>
+      </Modal>
+
     </div>
   );
 }

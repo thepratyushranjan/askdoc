@@ -6,6 +6,10 @@ interface HeaderProps {
   showNewButton: boolean;
   onToggleSidebar: () => void;
   sidebarOpen: boolean;
+  onExtract?: () => void;
+  onAudit?: () => void;
+  isExtracting?: boolean;
+  isAuditing?: boolean;
 }
 
 export function Header({
@@ -14,6 +18,10 @@ export function Header({
   showNewButton,
   onToggleSidebar,
   sidebarOpen,
+  onExtract,
+  onAudit,
+  isExtracting,
+  isAuditing,
 }: HeaderProps) {
   return (
     <header className="app-header">
@@ -43,6 +51,28 @@ export function Header({
         )}
 
         <div className="header-actions">
+          {onExtract && (
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={onExtract}
+              title="Extract Metadata"
+              disabled={isExtracting}
+            >
+              <span>{isExtracting ? 'Extracting...' : 'Extract'}</span>
+            </button>
+          )}
+          {onAudit && (
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={onAudit}
+              title="Audit Document"
+              disabled={isAuditing}
+            >
+              <span>{isAuditing ? 'Auditing...' : 'Audit Risks'}</span>
+            </button>
+          )}
           {showNewButton && (
             <button
               type="button"
