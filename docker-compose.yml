@@ -82,6 +82,7 @@ services:
     env_file:
       - .env
     environment:
+      - FLOWER_UNAUTHENTICATED_API=true
       - REDIS_URL=redis://redis:6379/0
       - UV_CACHE_DIR=/app/.uv_cache
     depends_on:

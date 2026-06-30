@@ -59,13 +59,37 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from fastapi.responses import JSONResponse
+from sqlalchemy.exc import OperationalError
+
+@app.exception_handler(OperationalError)
+async def db_operational_exception_handler(request: Request, exc: OperationalError):
+    from app.api.v1.endpoints.system import METRICS
+    METRICS["total_failures"] += 1
+    return JSONResponse(
+        status_code=503,
+        content={"message": "Service Unavailable: Database/Vector Store connection failed.", "detail": str(exc)},
+    )
+
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
+    from app.api.v1.endpoints.system import METRICS
     start_time = time.time()
-    response = await call_next(request)
-    process_time = time.time() - start_time
-    response.headers["X-Process-Time"] = str(process_time)
-    return response
+    try:
+        response = await call_next(request)
+        if response.status_code >= 500:
+            METRICS["total_failures"] += 1
+    except Exception:
+        METRICS["total_failures"] += 1
+        raise
+    finally:
+        process_time = time.time() - start_time
+        METRICS["total_latency_seconds"] += process_time
+        METRICS["total_requests"] += 1
+        
+    if "response" in locals():
+        response.headers["X-Process-Time"] = str(process_time)
+        return response
 
 # Serve static files for the React frontend
 frontend_dist = os.path.join(os.path.dirname(__file__), "frontend", "dist")

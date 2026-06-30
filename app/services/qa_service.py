@@ -8,6 +8,7 @@ from openai import AsyncOpenAI
 from google import genai
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from tenacity import retry, stop_after_attempt, wait_exponential
 from app.models.models import Conversation, Message, MessageRole, Document, DocumentStatus, DocumentChunk
 from app.core.config import settings
 from app.services.prompts import (
@@ -30,15 +31,20 @@ client = AsyncOpenAI(
 )
 
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+def embed_content_with_retry(query: str):
+    genai_client = genai.Client()
+    response = genai_client.models.embed_content(
+        model='gemini-embedding-2',
+        contents=query,
+        config={"output_dimensionality": 768}
+    )
+    return response.embeddings[0].values
+
 async def search_pgvector_async(db: AsyncSession, query: str, document_id: UUID, top_k: int = 5) -> List[str]:
     """Searches PostgreSQL vector database for the most relevant chunks for a specific document."""
     try:
-        genai_client = genai.Client()
-        response = genai_client.models.embed_content(
-            model='gemini-embedding-2',
-            contents=[query]
-        )
-        query_embedding = response.embeddings[0].values
+        query_embedding = embed_content_with_retry(query)
     except Exception as e:
         print(f"Error embedding query: {e}")
         return []
@@ -55,6 +61,21 @@ async def search_pgvector_async(db: AsyncSession, query: str, document_id: UUID,
     return [c.content for c in chunks]
 
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+async def chat_completion_with_retry(messages, temperature=0.0):
+    response = await client.chat.completions.create(
+        model=LLM_MODEL,
+        messages=messages,
+        temperature=temperature,
+    )
+    try:
+        from app.api.v1.endpoints.system import METRICS
+        if hasattr(response, 'usage') and response.usage:
+            METRICS["llm_token_usage"] += response.usage.total_tokens
+    except Exception:
+        pass
+    return response
+
 async def condense_question(history: List[Message], question: str) -> str:
     """Rewrite a follow-up question into a standalone search query using recent history.
 
@@ -68,8 +89,7 @@ async def condense_question(history: List[Message], question: str) -> str:
     prompt = CONDENSE_QUESTION_PROMPT.format(history=history_text, question=question)
 
     try:
-        response = await client.chat.completions.create(
-            model=LLM_MODEL,
+        response = await chat_completion_with_retry(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.0,
         )
@@ -92,8 +112,7 @@ async def generate_follow_ups(context: str, question: str, answer: str) -> List[
     prompt = FOLLOW_UP_PROMPT.format(context=context, question=question, answer=answer)
 
     try:
-        response = await client.chat.completions.create(
-            model=LLM_MODEL,
+        response = await chat_completion_with_retry(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.6,
         )
@@ -195,8 +214,7 @@ async def process_chat_message(
         return "Configuration Error: GEMINI_API_KEY is not set.", []
 
     try:
-        response = await client.chat.completions.create(
-            model=LLM_MODEL,
+        response = await chat_completion_with_retry(
             messages=messages,
             temperature=0.7,
         )
